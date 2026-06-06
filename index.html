@@ -726,6 +726,9 @@ tbody td{padding:9px 14px;vertical-align:middle;}
     <div class="admin-nav-item" id="anav-classes" onclick="adminNav('classes')"><span class="nav-icon">🏫</span> Class & Sections</div>
     <div class="admin-nav-item" id="anav-subskills" onclick="adminNav('subskills')"><span class="nav-icon">🎯</span> Subskills & Outcomes</div>
     <div class="admin-nav-item" id="anav-reportcards" onclick="adminNav('reportcards')"><span class="nav-icon">📋</span> Report Cards</div>
+    <div style="margin-top:auto;padding:12px 8px 0;">
+      <div class="admin-nav-item" id="anav-reset" onclick="adminNav('reset')" style="color:#c0392b;border:1px solid #f0b4ae;border-radius:8px;background:#fef2f2;margin-top:8px;"><span class="nav-icon">⚠️</span> Master Reset</div>
+    </div>
     <div class="sidebar-divider"></div>
     <div class="sidebar-heading">PE Portal Access</div>
     <div class="admin-nav-item" id="anav-marks" onclick="adminNav('marks')"><span class="nav-icon">✏️</span> Enter Marks</div>
@@ -979,7 +982,46 @@ ALTER TABLE physicals ADD COLUMN IF NOT EXISTS total_days   INTEGER;</pre>
     </div>
   </div>
 
-  <!-- User Management -->
+  <!-- Domains migration -->
+      <div class="card" style="margin-top:16px;border-left:4px solid var(--primary);">
+        <div class="card-header" style="background:var(--primary-light);">
+          <div class="card-title" style="color:var(--primary);">Domains Database Migration</div>
+          <button class="btn btn-sm" onclick="copyDomainMigrationSql()" style="background:var(--primary);color:#fff;font-weight:600;">Copy SQL</button>
+        </div>
+        <div style="padding:18px 20px;">
+          <p style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6;">Run this once in <strong>Supabase SQL Editor</strong> to create a <code style="background:var(--bg);padding:1px 5px;border-radius:3px;font-size:12px;">domains</code> table so domain changes are saved permanently.</p>
+          <div style="position:relative;">
+            <pre id="domainMigrationSql" style="background:#0f172a;color:#e2e8f0;padding:16px 18px;border-radius:8px;font-size:12px;line-height:1.7;overflow-x:auto;margin:0;">CREATE TABLE IF NOT EXISTS domains (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  subtitle TEXT,
+  color TEXT,
+  sort_order INTEGER DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE domains ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'domains' AND policyname = 'allowall_domains'
+  ) THEN
+    CREATE POLICY allowall_domains ON domains FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
+ALTER TABLE domains ADD COLUMN IF NOT EXISTS subtitle TEXT;
+ALTER TABLE domains ADD COLUMN IF NOT EXISTS color TEXT;
+ALTER TABLE domains ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
+ALTER TABLE domains ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();</pre>
+            <button onclick="copyDomainMigrationSql()" style="position:absolute;top:10px;right:10px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#e2e8f0;border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit;">Copy</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- User Management -->
   <div id="adminUsers" class="hidden">
     <div class="page-header">
       <div><div class="page-title">👥 User Management</div><div class="page-breadcrumb">Create, edit and manage teacher accounts</div></div>
@@ -1070,18 +1112,76 @@ ALTER TABLE physicals ADD COLUMN IF NOT EXISTS total_days   INTEGER;</pre>
   <div id="adminSubskills" class="hidden">
     <div class="page-header">
       <div><div class="page-title">🎯 Subskills &amp; Learning Outcomes</div>
-      <div class="page-breadcrumb">Define subskills under each Domain and add 6–10 learning outcomes per subskill.</div></div>
-      <button class="btn btn-primary btn-sm" onclick="openAddSubskillModal()">➕ Add Subskill</button>
+      <div class="page-breadcrumb">Define domains, subskills, and learning outcomes used across the portal.</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;" id="subskillsPageActions">
+        <button class="btn btn-outline btn-sm" onclick="openDomainManagerModal()">⚙️ Manage Domains</button>
+        <button class="btn btn-primary btn-sm" onclick="openAddSubskillModal()">➕ Add Subskill</button>
+      </div>
     </div>
-    <!-- Domain filter -->
-    <div class="card" style="margin-bottom:16px;padding:14px 20px;display:flex;gap:12px;align-items:center">
-      <div class="field-label" style="margin:0;white-space:nowrap">Filter by Domain:</div>
-      <div class="select-wrap"><select id="subskill-domain-filter" onchange="renderSubskillsPanel()" style="min-width:260px">
-        <option value="">All Domains</option>
-      </select></div>
-      <span id="subskill-count" style="font-size:12px;color:var(--muted);margin-left:auto"></span>
+
+    <!-- Tab bar -->
+    <div class="card" style="margin-bottom:16px;overflow:hidden;">
+      <div style="display:flex;border-bottom:1px solid var(--border);background:var(--surface2);padding:0 4px;">
+        <button id="ss-tab-snapshot" onclick="switchSubskillsTab('snapshot')"
+          style="padding:11px 20px;font-size:13px;font-weight:500;color:var(--primary);border:none;border-bottom:2px solid var(--primary);background:none;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s;">
+          📊 Snapshot
+        </button>
+        <button id="ss-tab-manage" onclick="switchSubskillsTab('manage')"
+          style="padding:11px 20px;font-size:13px;font-weight:500;color:var(--muted);border:none;border-bottom:2px solid transparent;background:none;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s;">
+          ⚙️ Manage
+        </button>
+      </div>
+
+      <!-- SNAPSHOT TAB -->
+      <div id="ss-pane-snapshot" style="padding:20px;">
+
+        <!-- Summary strip -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;" id="ss-summary-strip"></div>
+
+        <!-- Filter bar -->
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+          <span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Filter domain:</span>
+          <div id="ss-domain-pills" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+          <div style="margin-left:auto;display:flex;gap:6px;">
+            <button id="ss-view-card" onclick="switchSnapshotView('card')"
+              style="padding:5px 13px;font-size:12px;border:1px solid var(--border2);border-radius:6px;background:var(--primary);color:#fff;cursor:pointer;font-family:inherit;font-weight:500;transition:all .15s;">Card</button>
+            <button id="ss-view-matrix" onclick="switchSnapshotView('matrix')"
+              style="padding:5px 13px;font-size:12px;border:1px solid var(--border2);border-radius:6px;background:#fff;color:var(--text2);cursor:pointer;font-family:inherit;font-weight:500;transition:all .15s;">Matrix</button>
+          </div>
+        </div>
+
+        <!-- Card view -->
+        <div id="ss-card-view" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;"></div>
+
+        <!-- Matrix view -->
+        <div id="ss-matrix-view" style="display:none;overflow-x:auto;"></div>
+
+      </div>
+
+      <!-- MANAGE TAB -->
+      <div id="ss-pane-manage" style="display:none;">
+        <!-- Domains list -->
+        <div style="padding:14px 20px;border-bottom:1px solid var(--border);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <span style="font-size:12px;font-weight:600;color:var(--text2);">Assessment Domains</span>
+            <button class="btn btn-outline btn-xs" onclick="openAddDomainModal()">+ Add Domain</button>
+          </div>
+          <div id="domainsList"></div>
+        </div>
+        <!-- Subskills filter + list -->
+        <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <div class="field-label" style="margin:0;white-space:nowrap">Filter by Domain:</div>
+          <div class="select-wrap"><select id="subskill-domain-filter" onchange="renderSubskillsPanel()" style="min-width:260px">
+            <option value="">All Domains</option>
+          </select></div>
+          <span id="subskill-count" style="font-size:12px;color:var(--muted);margin-left:auto"></span>
+        </div>
+        <div style="padding:16px 20px;">
+          <div id="subskillsList"></div>
+        </div>
+      </div>
+
     </div>
-    <div id="subskillsList"></div>
   </div>
 
   <!-- Assessment Levels -->
@@ -1123,6 +1223,122 @@ ALTER TABLE physicals ADD COLUMN IF NOT EXISTS total_days   INTEGER;</pre>
   <div id="adminMarks" class="hidden">
     <div class="page-header"><div><div class="page-title">✏️ Marks Entry</div><div class="page-breadcrumb">Enter or review PE marks as Super Admin</div></div></div>
     <div class="card"><div class="empty-state"><div class="empty-icon">👈</div><div class="empty-title">Use the sidebar</div><div class="empty-sub">Switch to "Enter Marks" view and select a class from the navigation.</div></div></div>
+  </div>
+
+  <!-- Master Reset -->
+  <div id="adminReset" class="hidden">
+    <div class="page-header">
+      <div>
+        <div class="page-title" style="color:#c0392b;">⚠️ Master Reset</div>
+        <div class="page-breadcrumb">Permanently delete all data from every module and the Supabase database.</div>
+      </div>
+    </div>
+
+    <!-- Warning banner -->
+    <div style="background:#fff5f5;border:1.5px solid #f5a8a0;border-radius:10px;padding:18px 22px;margin-bottom:20px;display:flex;gap:14px;align-items:flex-start;">
+      <div style="font-size:28px;line-height:1;flex-shrink:0;">🚨</div>
+      <div>
+        <div style="font-size:14px;font-weight:700;color:#7f1d1d;margin-bottom:6px;">This action is irreversible</div>
+        <div style="font-size:13px;color:#991b1b;line-height:1.7;">
+          Clicking <strong>Execute Master Reset</strong> will permanently wipe <em>all</em> data listed below
+          from both this session and your Supabase database. There is no undo, no backup, and no recovery.
+          Use this only when you want to start the portal completely from scratch.
+        </div>
+      </div>
+    </div>
+
+    <!-- What will be deleted -->
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header"><div class="card-title">What will be deleted</div></div>
+      <div style="padding:0 20px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:12px;" id="resetScopeList">
+        <div class="reset-scope-item" data-table="users">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+            <input type="checkbox" checked style="margin-top:2px;accent-color:#c0392b;width:15px;height:15px;flex-shrink:0;" id="rst-users">
+            <div><div style="font-size:13px;font-weight:600;color:var(--text)">👥 Teacher Accounts</div><div style="font-size:11px;color:var(--muted);margin-top:2px;">All teacher logins and profiles</div></div>
+          </label>
+        </div>
+        <div class="reset-scope-item" data-table="students">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+            <input type="checkbox" checked style="margin-top:2px;accent-color:#c0392b;width:15px;height:15px;flex-shrink:0;" id="rst-students">
+            <div><div style="font-size:13px;font-weight:600;color:var(--text)">🎓 Student Records</div><div style="font-size:11px;color:var(--muted);margin-top:2px;">All student names, rolls, admission data</div></div>
+          </label>
+        </div>
+        <div class="reset-scope-item" data-table="marks">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+            <input type="checkbox" checked style="margin-top:2px;accent-color:#c0392b;width:15px;height:15px;flex-shrink:0;" id="rst-marks">
+            <div><div style="font-size:13px;font-weight:600;color:var(--text)">✏️ Marks & Submissions</div><div style="font-size:11px;color:var(--muted);margin-top:2px;">All PE assessment marks and status</div></div>
+          </label>
+        </div>
+        <div class="reset-scope-item" data-table="classes">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+            <input type="checkbox" checked style="margin-top:2px;accent-color:#c0392b;width:15px;height:15px;flex-shrink:0;" id="rst-classes">
+            <div><div style="font-size:13px;font-weight:600;color:var(--text)">🏫 Classes & Sections</div><div style="font-size:11px;color:var(--muted);margin-top:2px;">All class configurations and sections</div></div>
+          </label>
+        </div>
+        <div class="reset-scope-item" data-table="assignments">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+            <input type="checkbox" checked style="margin-top:2px;accent-color:#c0392b;width:15px;height:15px;flex-shrink:0;" id="rst-assignments">
+            <div><div style="font-size:13px;font-weight:600;color:var(--text)">🗂️ Class Assignments</div><div style="font-size:11px;color:var(--muted);margin-top:2px;">Teacher-to-class assignment records</div></div>
+          </label>
+        </div>
+        <div class="reset-scope-item" data-table="domains">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+            <input type="checkbox" checked style="margin-top:2px;accent-color:#c0392b;width:15px;height:15px;flex-shrink:0;" id="rst-domains">
+            <div><div style="font-size:13px;font-weight:600;color:var(--text)">🗂 Assessment Domains</div><div style="font-size:11px;color:var(--muted);margin-top:2px;">All custom domains</div></div>
+          </label>
+        </div>
+        <div class="reset-scope-item" data-table="subskills">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+            <input type="checkbox" checked style="margin-top:2px;accent-color:#c0392b;width:15px;height:15px;flex-shrink:0;" id="rst-subskills">
+            <div><div style="font-size:13px;font-weight:600;color:var(--text)">🎯 Subskills & Outcomes</div><div style="font-size:11px;color:var(--muted);margin-top:2px;">All subskills and learning outcome rows</div></div>
+          </label>
+        </div>
+        <div class="reset-scope-item" data-table="physicals">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+            <input type="checkbox" checked style="margin-top:2px;accent-color:#c0392b;width:15px;height:15px;flex-shrink:0;" id="rst-physicals">
+            <div><div style="font-size:13px;font-weight:600;color:var(--text)">🏃 Physical Records</div><div style="font-size:11px;color:var(--muted);margin-top:2px;">Height, weight, BMI measurements</div></div>
+          </label>
+        </div>
+        <div class="reset-scope-item" data-table="levels">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+            <input type="checkbox" style="margin-top:2px;accent-color:#c0392b;width:15px;height:15px;flex-shrink:0;" id="rst-levels">
+            <div><div style="font-size:13px;font-weight:600;color:var(--text)">🏅 Assessment Levels</div><div style="font-size:11px;color:var(--muted);margin-top:2px;">Custom L1–L5 level definitions (off by default)</div></div>
+          </label>
+        </div>
+        <div class="reset-scope-item" data-table="settings">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+            <input type="checkbox" checked style="margin-top:2px;accent-color:#c0392b;width:15px;height:15px;flex-shrink:0;" id="rst-settings">
+            <div><div style="font-size:13px;font-weight:600;color:var(--text)">⚙️ App Settings</div><div style="font-size:11px;color:var(--muted);margin-top:2px;">Term, school name, principal signature</div></div>
+          </label>
+        </div>
+        <div class="reset-scope-item" data-table="rubrics">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+            <input type="checkbox" checked style="margin-top:2px;accent-color:#c0392b;width:15px;height:15px;flex-shrink:0;" id="rst-rubrics">
+            <div><div style="font-size:13px;font-weight:600;color:var(--text)">📐 Rubrics</div><div style="font-size:11px;color:var(--muted);margin-top:2px;">Assessment rubric definitions</div></div>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirmation input + execute button -->
+    <div class="card" style="border:1.5px solid #f5a8a0;">
+      <div style="padding:20px 22px;">
+        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px;">
+          Type <code style="background:#fee2e2;color:#7f1d1d;padding:1px 6px;border-radius:4px;font-size:12px;">RESET EVERYTHING</code> to confirm:
+        </div>
+        <input id="resetConfirmInput" type="text" class="form-input"
+          placeholder="Type the phrase above exactly…"
+          style="border-color:#f5a8a0;max-width:380px;margin-bottom:14px;"
+          oninput="document.getElementById('executeResetBtn').disabled = this.value !== 'RESET EVERYTHING';">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <button id="executeResetBtn" class="btn btn-danger" disabled onclick="executeMasterReset()"
+            style="padding:10px 28px;font-size:14px;font-weight:600;letter-spacing:.3px;">
+            🗑 Execute Master Reset
+          </button>
+          <span id="resetStatusMsg" style="font-size:12px;color:var(--muted);"></span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Report Cards -->
@@ -1216,6 +1432,28 @@ ALTER TABLE physicals ADD COLUMN IF NOT EXISTS total_days   INTEGER;</pre>
 
       <!-- Mode selection -->
       <div id="printModeSection">
+
+        <!-- Report Type -->
+        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Report type</div>
+        <div class="print-option-row" style="margin-bottom:16px">
+          <div class="print-option-card selected" id="rtypeCard-term1" onclick="rcSelectReportType('term1')" style="flex:1">
+            <div class="print-option-icon">📅</div>
+            <div class="print-option-title">Term 1</div>
+            <div class="print-option-desc">Term 1 marks &amp; assessments only</div>
+          </div>
+          <div class="print-option-card" id="rtypeCard-term2" onclick="rcSelectReportType('term2')" style="flex:1">
+            <div class="print-option-icon">📅</div>
+            <div class="print-option-title">Term 2</div>
+            <div class="print-option-desc">Term 2 marks &amp; assessments only</div>
+          </div>
+          <div class="print-option-card" id="rtypeCard-consolidated" onclick="rcSelectReportType('consolidated')" style="flex:1">
+            <div class="print-option-icon">📊</div>
+            <div class="print-option-title">Consolidated</div>
+            <div class="print-option-desc">Full-year combined report (both terms)</div>
+          </div>
+        </div>
+        <div style="height:1px;background:var(--border);margin:0 0 16px"></div>
+
         <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">What would you like to print?</div>
         <div class="print-option-row">
           <div class="print-option-card selected" id="pmodeCard-one" onclick="rcSelectPrintMode('one')">
@@ -1283,7 +1521,67 @@ ALTER TABLE physicals ADD COLUMN IF NOT EXISTS total_days   INTEGER;</pre>
   <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('submitModal')">Cancel</button><button class="btn btn-success" onclick="finalSubmit()">✔ Submit</button></div></div>
 </div>
 
-<!-- ADD / EDIT SUBSKILL MODAL -->
+<!-- DOMAIN MANAGER MODAL -->
+  <div class="modal-overlay" id="domainManagerModal">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <div class="modal-title">Manage Domains</div>
+        <button class="modal-close" onclick="closeModal('domainManagerModal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+          <div style="font-size:13px;color:var(--text2);line-height:1.6;">Add, edit, or delete the domains used in the outcomes module. Changes are reflected immediately in filters and subskill forms.</div>
+          <button class="btn btn-primary btn-sm" onclick="openAddDomainModal()">Add Domain</button>
+        </div>
+        <div id="domainManagerList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD / EDIT DOMAIN MODAL -->
+  <div class="modal-overlay" id="domainModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="domainModalTitle">Add Domain</div>
+        <button class="modal-close" onclick="closeModal('domainModal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row single">
+          <div class="form-group">
+            <label class="form-label">Domain Name</label>
+            <input class="form-input" id="df-name" placeholder="e.g. Physical Fitness & Endurance">
+          </div>
+        </div>
+        <div class="form-row single">
+          <div class="form-group">
+            <label class="form-label">Subtitle <span style="font-weight:400;color:var(--muted)">optional</span></label>
+            <input class="form-input" id="df-subtitle" placeholder="e.g. Annamaya Kosha">
+          </div>
+        </div>
+        <div class="form-row single">
+          <div class="form-group">
+            <label class="form-label">Colour</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;" id="df-color-picker">
+              <span class="color-swatch active" data-color="#1a4f8a" style="background:#dbeafe;color:#1a4f8a;border:2px solid #1a4f8a;" onclick="selectDomainColor('#1a4f8a', this)">Blue</span>
+              <span class="color-swatch" data-color="#6d28d9" style="background:#ede9fe;color:#6d28d9;" onclick="selectDomainColor('#6d28d9', this)">Violet</span>
+              <span class="color-swatch" data-color="#1a7f4f" style="background:#dcfce7;color:#1a7f4f;" onclick="selectDomainColor('#1a7f4f', this)">Green</span>
+              <span class="color-swatch" data-color="#b45309" style="background:#fef3c7;color:#b45309;" onclick="selectDomainColor('#b45309', this)">Amber</span>
+              <span class="color-swatch" data-color="#c0392b" style="background:#fee2e2;color:#c0392b;" onclick="selectDomainColor('#c0392b', this)">Red</span>
+              <span class="color-swatch" data-color="#0369a1" style="background:#e0f2fe;color:#0369a1;" onclick="selectDomainColor('#0369a1', this)">Sky</span>
+            </div>
+            <input type="hidden" id="df-color" value="#1a4f8a">
+          </div>
+        </div>
+        <div id="domainModalError" style="color:var(--red);font-size:12px;margin-top:8px;display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal('domainModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveDomain()">Save Domain</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD / EDIT SUBSKILL MODAL -->
 <div class="modal-overlay" id="subskillModal">
   <div class="modal modal-lg">
     <div class="modal-header">
@@ -1622,6 +1920,7 @@ const TABLE_PK = {
   students:    'roll',   // roll number is the primary key for students
   levels:      'value',
   subskills:   'id',
+  domains:      'id',
 };
 // Tables that should use upsert instead of delete+insert
 const UPSERT_TABLES = new Set(['students','levels','subskills','marks']);
@@ -1724,11 +2023,11 @@ let studentsSchemaExtended = false; // true once admission_no/dob/father_name/mo
 
 // The 5 Kosha-based assessment domains — managed by Super Admin
 let DOMAINS = [
-  { id:'d1', name:'Physical Development & Motor Skills',          subtitle:'Annamaya Kosha',                        color:'#1a4f8a' },
-  { id:'d2', name:'Social-Emotional Development',                 subtitle:'Manomaya Kosha',                        color:'#6d28d9' },
-  { id:'d3', name:'Cognitive Development',                        subtitle:'Vijnanamaya Kosha',                     color:'#1a7f4f' },
-  { id:'d4', name:'Character & Values Development',               subtitle:'',                                      color:'#b45309' },
-  { id:'d5', name:'Holistic Wellness & Mind-Body Integration',    subtitle:'Pranamaya & Anandamaya Koshas',         color:'#c0392b' },
+  { id:'d1', name:'', subtitle:'', color:'#1a4f8a' },
+  { id:'d2', name:'', subtitle:'', color:'#6d28d9' },
+  { id:'d3', name:'', subtitle:'', color:'#1a7f4f' },
+  { id:'d4', name:'', subtitle:'', color:'#b45309' },
+  { id:'d5', name:'', subtitle:'', color:'#c0392b' },
 ];   // { 'pe_teacher1': ['9-A','9-B','10-A'] … }
 
 const LEVEL_DEFS = {
@@ -3492,7 +3791,7 @@ function showAdminDashboard(){
   refreshPrincipalPanel();
 }
 function adminNav(section){
-  const map={dashboard:'adminDashboard',users:'adminUsers',students:'adminStudents',assign:'adminAssign',classes:'adminClasses',subskills:'adminSubskills',levels:'adminLevels',marks:'classView',reportcards:'adminReportCards'};
+  const map={dashboard:'adminDashboard',users:'adminUsers',students:'adminStudents',assign:'adminAssign',classes:'adminClasses',subskills:'adminSubskills',levels:'adminLevels',marks:'classView',reportcards:'adminReportCards',reset:'adminReset'};
   document.querySelectorAll('.admin-nav-item').forEach(e=>e.classList.remove('active'));
   const nav=document.getElementById(`anav-${section}`); if(nav)nav.classList.add('active');
   // Swap sidebars: marks uses teacherSidebar, everything else uses adminSidebar
@@ -3516,12 +3815,119 @@ function adminNav(section){
     if(banner) banner.style.display = studentsSchemaExtended ? 'none' : 'flex';
   }
   if(section==='levels')renderLevelsPanel();
-  if(section==='subskills'){buildSubskillDomainFilter();renderSubskillsPanel();}
+  if(section==='subskills'){buildSubskillDomainFilter();renderSubskillsPanel();switchSubskillsTab('snapshot');}
   if(section==='assign')renderAssignPanel();
   if(section==='classes')renderClassConfig();
   if(section==='dashboard'){ refreshAdminStats(); refreshPrincipalPanel(); }
   if(section==='reportcards')rcInit();
 }
+// ════════════════════════════════════════════════════════
+// MASTER RESET — wipes selected tables from DB + memory
+// ════════════════════════════════════════════════════════
+async function executeMasterReset(){
+  const btn    = document.getElementById('executeResetBtn');
+  const status = document.getElementById('resetStatusMsg');
+  const input  = document.getElementById('resetConfirmInput');
+
+  if(input.value !== 'RESET EVERYTHING') return;
+
+  // Build list of selected tables
+  const TABLE_MAP = {
+    users:       { id:'rst-users',       label:'Teacher Accounts',    pk:'user_id',     pkType:'neq.__empty__' },
+    students:    { id:'rst-students',    label:'Student Records',     pk:'id',          pkType:'gte.0'         },
+    marks:       { id:'rst-marks',       label:'Marks',               pk:'id',          pkType:'gte.0'         },
+    classes:     { id:'rst-classes',     label:'Classes',             pk:'class',       pkType:'neq.__empty__' },
+    assignments: { id:'rst-assignments', label:'Assignments',         pk:'user_id',     pkType:'neq.__empty__' },
+    domains:     { id:'rst-domains',     label:'Domains',             pk:'id',          pkType:'neq.__empty__' },
+    subskills:   { id:'rst-subskills',   label:'Subskills',           pk:'id',          pkType:'neq.__empty__' },
+    physicals:   { id:'rst-physicals',   label:'Physical Records',    pk:'id',          pkType:'gte.0'         },
+    levels:      { id:'rst-levels',      label:'Assessment Levels',   pk:'value',       pkType:'neq.__empty__' },
+    settings:    { id:'rst-settings',    label:'Settings',            pk:'key',         pkType:'neq.__empty__' },
+    rubrics:     { id:'rst-rubrics',     label:'Rubrics',             pk:'id',          pkType:'neq.__empty__' },
+  };
+
+  const selected = Object.entries(TABLE_MAP).filter(([,cfg])=>{
+    const el = document.getElementById(cfg.id);
+    return el && el.checked;
+  });
+
+  if(!selected.length){
+    status.textContent = 'No modules selected.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Resetting…';
+  setDbStatus('syncing');
+
+  const errors = [];
+  let done = 0;
+
+  for(const [table, cfg] of selected){
+    status.textContent = `Deleting ${cfg.label}… (${done+1}/${selected.length})`;
+    try {
+      const res = await fetch(
+        `${SB_URL}/rest/v1/${table}?${cfg.pk}=${cfg.pkType}`,
+        { method: 'DELETE', headers: SB_HEADERS }
+      );
+      if(!res.ok){
+        const txt = await res.text();
+        // 42P01 = table does not exist — treat as success (nothing to delete)
+        if(!txt.includes('42P01')) errors.push(`${cfg.label}: ${txt}`);
+      }
+    } catch(e){
+      errors.push(`${cfg.label}: ${e.message}`);
+    }
+    done++;
+  }
+
+  // ── Reset in-memory globals for selected tables ──────
+  const sel = new Set(selected.map(([t])=>t));
+
+  if(sel.has('users'))       { TEACHERS=[]; }
+  if(sel.has('students'))    { STUDENTS=[]; }
+  if(sel.has('marks'))       { Object.keys(store).forEach(k=>delete store[k]); }
+  if(sel.has('classes'))     { CLASS_CONFIG={}; }
+  if(sel.has('assignments')) { ASSIGNMENTS={}; }
+  if(sel.has('domains'))     { DOMAINS=[]; _lastSavedDomainIds=[]; }
+  if(sel.has('subskills'))   { SUBSKILLS=[]; _lastSavedSubskillIds=[]; }
+  if(sel.has('levels'))      {
+    LEVELS=[
+      { value:'L1', label:'Foundation', sublabel:'Developing basic movement and fundamental skills',         code:'L1', color:'#92400e', bgcolor:'#fef3c7', order:1 },
+      { value:'L2', label:'Explorer',   sublabel:'Exploring and applying skills in simple activities',       code:'L2', color:'#1e40af', bgcolor:'#dbeafe', order:2 },
+      { value:'L3', label:'Builder',    sublabel:'Building consistency and applying skills with confidence', code:'L3', color:'#065f46', bgcolor:'#d1fae5', order:3 },
+      { value:'L4', label:'Advance',    sublabel:'Demonstrating advanced skills and tactical understanding', code:'L4', color:'#5b21b6', bgcolor:'#ede9fe', order:4 },
+      { value:'L5', label:'Role Model', sublabel:'Exemplary performance; leads and inspires peers',         code:'L5', color:'#9d174d', bgcolor:'#fce7f3', order:5 },
+    ];
+  }
+
+  // ── Report result ────────────────────────────────────
+  if(errors.length){
+    setDbStatus('error');
+    btn.textContent = '⚠ Partial Reset';
+    btn.disabled = false;
+    status.innerHTML = `<span style="color:#c0392b">Some tables could not be cleared:<br>${errors.map(e=>`• ${e}`).join('<br>')}</span>`;
+    showToast('⚠ Master Reset completed with errors — see details on page.', 'error');
+  } else {
+    setDbStatus('connected');
+    btn.textContent = '✓ Reset Complete';
+    btn.style.background = '#1a7f4f';
+    status.innerHTML = `<span style="color:#1a7f4f;font-weight:500;">✓ ${done} module${done!==1?'s':''} cleared from database and memory.</span>`;
+    input.value = '';
+    showToast('✓ Master Reset complete. All selected data has been deleted.', 'success');
+
+    // Refresh all admin views to reflect empty state
+    refreshAdminStats();
+    if(sel.has('users'))    renderUserTable();
+    if(sel.has('students')) { buildStudentFilterClass(); renderStudentTable(); }
+    if(sel.has('subskills') || sel.has('domains')) { buildSubskillDomainFilter(); renderSubskillsPanel(); renderSnapshotPanel(); }
+    if(sel.has('levels'))   renderLevelsPanel();
+    if(sel.has('classes'))  renderClassConfig();
+    if(sel.has('assignments')) renderAssignPanel();
+    updateGlobalStats();
+  }
+}
+
 function refreshAdminStats(){
   const _el = id => document.getElementById(id);
   if(_el('ad-users'))     _el('ad-users').textContent     = TEACHERS.length;
@@ -3734,6 +4140,106 @@ function confirmDeleteUser(userId){
 }
 
 // ════════════════════════════════════════════════════════
+// DOMAIN MANAGEMENT
+let editingDomainId = null;
+function renderDomainsPanel(){
+  const targets = [document.getElementById('domainsList'), document.getElementById('domainManagerList')].filter(Boolean);
+  const html = !DOMAINS.length
+    ? `<div class="empty-state" style="padding:28px 16px;"><div class="empty-icon">🗂️</div><div class="empty-title">No domains yet</div><div class="empty-sub">Add a domain to organize subskills and outcomes.</div></div>`
+    : DOMAINS.map(d=>{
+        const subskillCount = SUBSKILLS.filter(s=>s.domainId===d.id).length;
+        return `<div class="card" style="margin-bottom:10px;border-left:4px solid ${d.color};"><div class="card-header"><div><div class="card-title" style="font-size:14px;">${d.name}</div>${d.subtitle?`<div style="font-size:11px;color:var(--muted);margin-top:2px;">${d.subtitle}</div>`:''}</div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-size:11px;color:var(--muted);">${subskillCount} subskill${subskillCount!==1?'s':''}</span><button class="btn btn-outline btn-xs" type="button" data-domain-edit="${d.id}">Edit</button><button class="btn btn-danger-outline btn-xs" type="button" data-domain-delete="${d.id}">Delete</button></div></div></div>`;
+      }).join('');
+  targets.forEach(t=>t.innerHTML = html);
+}
+function openDomainManagerModal(){ renderDomainsPanel(); openModal('domainManagerModal'); }
+function openAddDomainModal(){
+  editingDomainId = null;
+  document.getElementById('domainModalTitle').textContent = 'Add Domain';
+  document.getElementById('df-name').value = '';
+  document.getElementById('df-subtitle').value = '';
+  document.getElementById('df-color').value = '#1a4f8a';
+  document.querySelectorAll('#df-color-picker .color-swatch').forEach((el,i)=>{ el.classList.toggle('active', i===0); el.style.border = i===0 ? '2px solid ' + el.dataset.color : '1px solid transparent'; });
+  document.getElementById('domainModalError').style.display = 'none';
+  openModal('domainModal');
+}
+function openEditDomainModal(id){
+  closeModal('domainManagerModal');
+  const d = DOMAINS.find(x=>x.id===id); if(!d) return;
+  editingDomainId = id;
+  document.getElementById('domainModalTitle').textContent = 'Edit Domain';
+  document.getElementById('df-name').value = d.name || '';
+  document.getElementById('df-subtitle').value = d.subtitle || '';
+  document.getElementById('df-color').value = d.color || '#1a4f8a';
+  document.querySelectorAll('#df-color-picker .color-swatch').forEach(el=>{
+    const active = (el.dataset.color || '').toLowerCase() === String(d.color || '').toLowerCase();
+    el.classList.toggle('active', active);
+    el.style.border = active ? '2px solid ' + el.dataset.color : '1px solid transparent';
+  });
+  document.getElementById('domainModalError').style.display = 'none';
+  openModal('domainModal');
+}
+function selectDomainColor(color, el){
+  document.getElementById('df-color').value = color;
+  document.querySelectorAll('#df-color-picker .color-swatch').forEach(s=>{ s.classList.remove('active'); s.style.border = '1px solid transparent'; });
+  if(el){ el.classList.add('active'); el.style.border = '2px solid ' + color; }
+}
+async function saveDomain(){
+  const name = document.getElementById('df-name').value.trim();
+  const subtitle = document.getElementById('df-subtitle').value.trim();
+  const color = document.getElementById('df-color').value || '#1a4f8a';
+  const errEl = document.getElementById('domainModalError');
+  errEl.style.display = 'none';
+  if(!name){ errEl.textContent = 'Domain name is required.'; errEl.style.display = 'block'; return; }
+  const duplicate = DOMAINS.find(d => d.name.toLowerCase() === name.toLowerCase() && d.id !== editingDomainId);
+  if(duplicate){ errEl.textContent = 'A domain with this name already exists.'; errEl.style.display = 'block'; return; }
+  if(editingDomainId){
+    const d = DOMAINS.find(x=>x.id===editingDomainId); if(!d) return;
+    d.name = name; d.subtitle = subtitle; d.color = color;
+  } else {
+    DOMAINS.push({ id: uniqueId('dom_'), name, subtitle, color, sortOrder: DOMAINS.length + 1 });
+  }
+  try { await syncDomains(); } catch(e){ return; }
+  closeModal('domainModal');
+  renderDomainsPanel();
+  openModal('domainManagerModal');
+  buildSubskillDomainFilter();
+  renderSubskillsPanel();
+  renderSnapshotPanel();
+  showToast(`Domain ${editingDomainId ? 'updated' : 'added'} successfully.`, 'success');
+}
+function confirmDeleteDomain(id){
+  const d = DOMAINS.find(x=>x.id===id);
+  if(!d) return;
+
+  const linked = SUBSKILLS.filter(s=>s.domainId===id).length;
+  const msg = linked
+    ? `Delete ${d.name}? This will also remove ${linked} linked subskill${linked!==1?'s':''}. This cannot be undone.`
+    : `Delete ${d.name}? This cannot be undone.`;
+
+  if(!window.confirm(msg)) return;
+
+  (async()=>{
+    DOMAINS = DOMAINS.filter(x=>x.id!==id);
+    SUBSKILLS = SUBSKILLS.filter(s=>s.domainId!==id);
+
+    try {
+      await syncDomains();
+      await syncSubskills();
+    } catch(e) {
+      console.error(e);
+      return;
+    }
+
+    renderDomainsPanel();
+    buildSubskillDomainFilter();
+    renderSubskillsPanel();
+    renderSnapshotPanel();
+    openModal('domainManagerModal');
+    showToast('Domain deleted.', 'info');
+  })();
+}
+
 // SUBSKILLS & LEARNING OUTCOMES MANAGEMENT
 // ════════════════════════════════════════════════════════
 let editingSubskillId = null;
@@ -3807,6 +4313,215 @@ function renderSubskillsPanel(){
     html+='</div>';
   });
   wrap.innerHTML=html;
+}
+
+// ════════════════════════════════════════════════════════
+// SNAPSHOT TAB — tab switcher, view toggler, renderer
+// ════════════════════════════════════════════════════════
+let _snapshotDomainFilter = '';
+let _snapshotView = 'card';
+
+function switchSubskillsTab(tab){
+  const isSnap = (tab === 'snapshot');
+  document.getElementById('ss-pane-snapshot').style.display = isSnap ? '' : 'none';
+  document.getElementById('ss-pane-manage').style.display   = isSnap ? 'none' : '';
+  const snapBtn   = document.getElementById('ss-tab-snapshot');
+  const manageBtn = document.getElementById('ss-tab-manage');
+  const activeStyle   = 'padding:11px 20px;font-size:13px;font-weight:500;color:var(--primary);border:none;border-bottom:2px solid var(--primary);background:none;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s;';
+  const inactiveStyle = 'padding:11px 20px;font-size:13px;font-weight:500;color:var(--muted);border:none;border-bottom:2px solid transparent;background:none;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s;';
+  if(snapBtn)   snapBtn.style.cssText   = isSnap  ? activeStyle : inactiveStyle;
+  if(manageBtn) manageBtn.style.cssText = !isSnap ? activeStyle : inactiveStyle;
+  if(isSnap) renderSnapshotPanel();
+}
+
+function switchSnapshotView(v){
+  _snapshotView = v;
+  const cardBtn   = document.getElementById('ss-view-card');
+  const matrixBtn = document.getElementById('ss-view-matrix');
+  if(cardBtn){
+    cardBtn.style.background   = v==='card'   ? 'var(--primary)' : '#fff';
+    cardBtn.style.color        = v==='card'   ? '#fff' : 'var(--text2)';
+    cardBtn.style.borderColor  = v==='card'   ? 'var(--primary)' : 'var(--border2)';
+  }
+  if(matrixBtn){
+    matrixBtn.style.background  = v==='matrix' ? 'var(--primary)' : '#fff';
+    matrixBtn.style.color       = v==='matrix' ? '#fff' : 'var(--text2)';
+    matrixBtn.style.borderColor = v==='matrix' ? 'var(--primary)' : 'var(--border2)';
+  }
+  document.getElementById('ss-card-view').style.display   = v==='card'   ? 'grid' : 'none';
+  document.getElementById('ss-matrix-view').style.display = v==='matrix' ? 'block' : 'none';
+  if(v==='card')   _renderSnapshotCards();
+  if(v==='matrix') _renderSnapshotMatrix();
+}
+
+function renderSnapshotPanel(){
+  _renderSnapshotSummary();
+  _renderSnapshotDomainPills();
+  if(_snapshotView==='card')   _renderSnapshotCards();
+  if(_snapshotView==='matrix') _renderSnapshotMatrix();
+}
+
+function _ssGroupHasSubskill(groupKey, ss){
+  return (ss.classes||[]).some(c=>
+    LEVEL_DEFS[groupKey].classes.map(String).includes(String(c))
+  );
+}
+function _ssSubskillsForGroup(groupKey){
+  return SUBSKILLS.filter(ss=>_ssGroupHasSubskill(groupKey,ss));
+}
+
+const _SS_GROUP_STYLE = {
+  earlyyears: {bg:'#e8f6ef', color:'#1a7f4f', border:'#a7d8be'},
+  primary:    {bg:'#e8f0fc', color:'#1a4f8a', border:'#a8c4ef'},
+  middle:     {bg:'#ede9fe', color:'#6d28d9', border:'#c4b5fd'},
+  secondary:  {bg:'#fef3c7', color:'#b45309', border:'#fcd34d'},
+  senior:     {bg:'#fdecea', color:'#c0392b', border:'#f5a8a0'},
+};
+
+function _renderSnapshotSummary(){
+  const el = document.getElementById('ss-summary-strip');
+  if(!el) return;
+  const totalLO = SUBSKILLS.reduce((a,ss)=>a+(ss.outcomes||[]).length, 0);
+  const coveredGroups = Object.keys(LEVEL_DEFS).filter(k=>_ssSubskillsForGroup(k).length>0).length;
+  el.innerHTML = [
+    {val: DOMAINS.length,   label: 'Domains defined'},
+    {val: SUBSKILLS.length, label: 'Total subskills'},
+    {val: totalLO,          label: 'Learning outcomes'},
+    {val: coveredGroups,    label: 'Class groups covered'},
+  ].map(s=>`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;">
+    <div style="font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:var(--primary)">${s.val}</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:3px">${s.label}</div>
+  </div>`).join('');
+}
+
+function _renderSnapshotDomainPills(){
+  const el = document.getElementById('ss-domain-pills');
+  if(!el) return;
+  const allActive = _snapshotDomainFilter === '';
+  let html = `<button onclick="_ssSetDomainFilter('')" style="padding:4px 12px;font-size:12px;border-radius:20px;border:1px solid var(--border2);background:${allActive?'var(--primary)':'#fff'};color:${allActive?'#fff':'var(--text2)'};cursor:pointer;font-family:inherit;font-weight:500;transition:all .15s;">All</button>`;
+  DOMAINS.forEach(d=>{
+    const active = _snapshotDomainFilter === d.id;
+    html += `<button onclick="_ssSetDomainFilter('${d.id}')" style="padding:4px 12px;font-size:12px;border-radius:20px;border:1px solid ${active?d.color+'99':'var(--border2)'};background:${active?d.color+'22':'#fff'};color:${active?d.color:'var(--text2)'};cursor:pointer;font-family:inherit;font-weight:${active?'600':'400'};transition:all .15s;">${d.name.split(/\s+/).slice(0,2).join('\u00a0')}&#8230;</button>`;
+  });
+  el.innerHTML = html;
+}
+
+function _ssSetDomainFilter(id){
+  _snapshotDomainFilter = id;
+  _renderSnapshotDomainPills();
+  if(_snapshotView==='card')   _renderSnapshotCards();
+  if(_snapshotView==='matrix') _renderSnapshotMatrix();
+}
+
+function _renderSnapshotCards(){
+  const wrap = document.getElementById('ss-card-view');
+  if(!wrap) return;
+  wrap.innerHTML = Object.entries(LEVEL_DEFS).map(([key,grp])=>{
+    let ssList = _ssSubskillsForGroup(key);
+    if(_snapshotDomainFilter) ssList = ssList.filter(ss=>ss.domainId===_snapshotDomainFilter);
+    const domainIds = [...new Set(ssList.map(ss=>ss.domainId))];
+    const domains   = DOMAINS.filter(d=>domainIds.includes(d.id));
+    const gs        = _SS_GROUP_STYLE[key]||{bg:'var(--surface2)',color:'var(--text2)',border:'var(--border)'};
+    const classLabel = grp.classes.map(c=>isNaN(c)?c:'Cl.'+c).join(', ');
+
+    const bodyHtml = !domains.length
+      ? `<div style="padding:14px 16px;font-size:12px;color:var(--muted);font-style:italic;">No subskills assigned${_snapshotDomainFilter?' for the selected domain':''}</div>`
+      : domains.map(d=>{
+          const dSS = ssList.filter(ss=>ss.domainId===d.id);
+          const loTotal = dSS.reduce((a,ss)=>a+(ss.outcomes||[]).length,0);
+          return `<div style="padding:8px 14px;display:flex;align-items:flex-start;gap:8px;border-bottom:1px solid var(--border);">
+            <div style="width:3px;border-radius:2px;background:${d.color};align-self:stretch;flex-shrink:0;margin-top:2px;min-height:16px;"></div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:12px;font-weight:600;color:var(--text)">${d.name}</div>
+              ${d.subtitle?`<div style="font-size:10px;color:var(--muted);margin-top:1px">${d.subtitle}</div>`:''}
+              <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">
+                ${dSS.map(ss=>`<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);">${ss.name}<span style="color:var(--muted);margin-left:3px;font-size:10px;">${(ss.outcomes||[]).length}&thinsp;LO</span></span>`).join('')}
+              </div>
+            </div>
+            <div style="font-size:10px;color:var(--muted);white-space:nowrap;padding-top:2px">${loTotal}&thinsp;LO</div>
+          </div>`;
+        }).join('');
+
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+      <div style="padding:10px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--border);background:var(--surface2);">
+        <div style="background:${gs.bg};border:1px solid ${gs.border};border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600;color:${gs.color};">${grp.label}</div>
+        <div style="font-size:11px;color:var(--muted);flex:1;min-width:0;">${classLabel}</div>
+        <span style="font-size:11px;padding:2px 8px;border-radius:20px;background:${gs.bg};color:${gs.color};border:1px solid ${gs.border};font-weight:600;">${domains.length}&thinsp;domain${domains.length!==1?'s':''}</span>
+        <span style="font-size:11px;padding:2px 8px;border-radius:20px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);">${ssList.length}&thinsp;subskill${ssList.length!==1?'s':''}</span>
+      </div>
+      ${bodyHtml}
+    </div>`;
+  }).join('');
+}
+
+function _renderSnapshotMatrix(){
+  const wrap = document.getElementById('ss-matrix-view');
+  if(!wrap) return;
+  const groups = Object.keys(LEVEL_DEFS);
+  let ssList = SUBSKILLS;
+  if(_snapshotDomainFilter) ssList = ssList.filter(ss=>ss.domainId===_snapshotDomainFilter);
+
+  if(!ssList.length){
+    wrap.innerHTML=`<div style="padding:40px;text-align:center;font-size:13px;color:var(--muted);">No subskills match the selected domain filter.</div>`;
+    return;
+  }
+
+  const groupHeaders = groups.map(k=>{
+    const gs = _SS_GROUP_STYLE[k]||{bg:'var(--surface2)',color:'var(--text2)'};
+    return `<th style="text-align:center;min-width:82px;padding:8px 4px;border-bottom:2px solid var(--border);">
+      <div style="background:${gs.bg};color:${gs.color};border-radius:6px;padding:3px 6px;font-size:10px;font-weight:600;white-space:nowrap;">${LEVEL_DEFS[k].label}</div>
+    </th>`;
+  }).join('');
+
+  let rows = '';
+  DOMAINS.forEach(domain=>{
+    const dSS = ssList.filter(ss=>ss.domainId===domain.id);
+    if(!dSS.length) return;
+    rows += `<tr style="background:var(--surface2);">
+      <td colspan="${groups.length+2}" style="padding:7px 12px;">
+        <span style="display:inline-flex;align-items:center;gap:7px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:${domain.color};display:inline-block;flex-shrink:0;"></span>
+          <span style="font-size:12px;font-weight:600;color:var(--text)">${domain.name}</span>
+          ${domain.subtitle?`<span style="font-size:10px;color:var(--muted)">${domain.subtitle}</span>`:''}
+        </span>
+      </td>
+    </tr>`;
+    dSS.forEach(ss=>{
+      const cells = groups.map(k=>{
+        const has = _ssGroupHasSubskill(k,ss);
+        return `<td style="text-align:center;padding:8px 4px;border-bottom:1px solid var(--border);">
+          ${has
+            ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;background:${domain.color}22;color:${domain.color};font-size:13px;font-weight:700;">&#10003;</span>`
+            : `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--border2);"></span>`
+          }
+        </td>`;
+      }).join('');
+      rows += `<tr>
+        <td style="padding:7px 12px 7px 24px;font-size:12px;color:var(--text);min-width:180px;border-bottom:1px solid var(--border);">${ss.name}</td>
+        <td style="font-size:11px;color:var(--muted);white-space:nowrap;padding:7px 10px;border-bottom:1px solid var(--border);">${(ss.outcomes||[]).length}&thinsp;LO</td>
+        ${cells}
+      </tr>`;
+    });
+  });
+
+  wrap.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+    <thead><tr>
+      <th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--border);min-width:180px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Subskill</th>
+      <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--border);min-width:40px;font-size:11px;font-weight:600;color:var(--muted);">LOs</th>
+      ${groupHeaders}
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div style="display:flex;align-items:center;gap:16px;padding:10px 0;border-top:1px solid var(--border);margin-top:8px;flex-wrap:wrap;">
+    <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);">
+      <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:var(--primary-light);color:var(--primary);font-weight:700;font-size:11px;">&#10003;</span>
+      Assigned to group
+    </span>
+    <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);">
+      <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--border2);"></span>
+      Not assigned
+    </span>
+  </div>`;
 }
 
 // ── Subskill class assignment grid ──
@@ -3934,6 +4649,7 @@ async function saveSubskill(){
   closeModal('subskillModal');
   await syncSubskills();
   renderSubskillsPanel();
+  renderSnapshotPanel();
   showToast(editingSubskillId?`Subskill updated: ${name}`:`Subskill added: ${name}`,'success');
   editingSubskillId=null;
 }
@@ -3948,6 +4664,7 @@ function confirmDeleteSubskill(id){
     closeModal('confirmOverlay');
     await syncSubskills();
     renderSubskillsPanel();
+    renderSnapshotPanel();
     showToast(`Subskill deleted: ${ss.name}`,'info');
   };
   openModal('confirmOverlay');
@@ -3963,7 +4680,84 @@ async function syncSubskills(){
   }));
   await dbSaveWithStatus('subskills', rows);
 }
+// ════════════════════════════════════════════════════════
+// DOMAINS — Supabase sync (delete orphans, then upsert)
+// ════════════════════════════════════════════════════════
+let _lastSavedDomainIds = null; // tracks what's currently in the DB
 
+async function syncDomains() {
+  setDbStatus('syncing');
+  try {
+    const currentIds = DOMAINS.map(d => d.id);
+
+    // Step 1: delete any IDs that were removed since last save
+    if (_lastSavedDomainIds && _lastSavedDomainIds.length) {
+      const orphans = _lastSavedDomainIds.filter(id => !currentIds.includes(id));
+      if (orphans.length) {
+        const idList = orphans.map(id => `"${id}"`).join(',');
+        const delRes = await fetch(
+          `${SB_URL}/rest/v1/domains?id=in.(${encodeURIComponent(idList)})`,
+          { method: 'DELETE', headers: SB_HEADERS }
+        );
+        if (!delRes.ok) {
+          const err = await delRes.text();
+          throw new Error('syncDomains DELETE: ' + err);
+        }
+      }
+    } else {
+      // First save of this session — do a full sweep: delete rows not in current list
+      if (currentIds.length) {
+        const idList = currentIds.map(id => `"${id}"`).join(',');
+        const delRes = await fetch(
+          `${SB_URL}/rest/v1/domains?id=not.in.(${encodeURIComponent(idList)})`,
+          { method: 'DELETE', headers: SB_HEADERS }
+        );
+        if (!delRes.ok) {
+          const err = await delRes.text();
+          throw new Error('syncDomains DELETE sweep: ' + err);
+        }
+      } else {
+        // No domains at all — delete everything
+        const delRes = await fetch(
+          `${SB_URL}/rest/v1/domains?id=neq.__none__`,
+          { method: 'DELETE', headers: SB_HEADERS }
+        );
+        if (!delRes.ok) {
+          const err = await delRes.text();
+          throw new Error('syncDomains DELETE all: ' + err);
+        }
+      }
+    }
+
+    // Step 2: upsert remaining domains (insert new + update edited)
+    if (DOMAINS.length) {
+      const rows = DOMAINS.map((d, i) => ({
+        id:         d.id,
+        name:       d.name,
+        subtitle:   d.subtitle || '',
+        color:      d.color || '#1a4f8a',
+        sort_order: d.sortOrder ?? i,
+        updated_at: new Date().toISOString(),
+      }));
+      const upsRes = await fetch(`${SB_URL}/rest/v1/domains`, {
+        method:  'POST',
+        headers: { ...SB_HEADERS, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        body:    JSON.stringify(rows),
+      });
+      if (!upsRes.ok) {
+        const err = await upsRes.text();
+        throw new Error('syncDomains UPSERT: ' + err);
+      }
+    }
+
+    _lastSavedDomainIds = [...currentIds];
+    setDbStatus('connected');
+  } catch(e) {
+    setDbStatus('error');
+    showToast('⚠ Could not save domains: ' + e.message, 'error');
+    throw e;
+  }
+}
 // ════════════════════════════════════════════════════════
 // ASSESSMENT LEVELS MANAGEMENT
 // ════════════════════════════════════════════════════════
@@ -5352,8 +6146,25 @@ function exportPDF(){
 // ════════════════════════════════════════════════════════
 // VIEW / MODAL / TOAST HELPERS
 // ════════════════════════════════════════════════════════
-const VIEWS=['landingView','classView','adminDashboard','adminUsers','adminStudents','adminAssign','adminClasses','adminSubskills','adminLevels','adminMarks','adminReportCards'];
+const VIEWS=['landingView','classView','adminDashboard','adminUsers','adminStudents','adminAssign','adminClasses','adminSubskills','adminLevels','adminMarks','adminReportCards','adminReset'];
 function showView(id){VIEWS.forEach(v=>document.getElementById(v).classList.add('hidden'));document.getElementById(id).classList.remove('hidden');}
+document.addEventListener('click', function(e){
+  const editBtn = e.target.closest('[data-domain-edit]');
+  if(editBtn){
+    e.preventDefault();
+    e.stopPropagation();
+    openEditDomainModal(editBtn.getAttribute('data-domain-edit'));
+    return;
+  }
+  const deleteBtn = e.target.closest('[data-domain-delete]');
+  if(deleteBtn){
+    e.preventDefault();
+    e.stopPropagation();
+    confirmDeleteDomain(deleteBtn.getAttribute('data-domain-delete'));
+    return;
+  }
+});
+
 function openModal(id){document.getElementById(id).classList.add('open');}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
 
@@ -5686,7 +6497,19 @@ function rcSelectStudent(roll){
         <div style="display:flex;gap:8px">
           <button class="btn btn-outline btn-sm" onclick="rcRenderStudentList()">← Back to list</button>
           ${hasMarks
-            ? `<button class="btn btn-primary btn-sm" onclick="rcGenerateCard('${student.roll}')">📋 Generate Report Card</button>`
+            ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <span style="font-size:12px;color:var(--muted);font-weight:500">Generate for:</span>
+                ${['Term 1','Term 2'].map(t => {
+                  const has = rcStudentHasMarks(student, t);
+                  return has
+                    ? `<button class="btn btn-outline btn-sm" onclick="rcGenerateCard('${student.roll}','${t}')" style="color:var(--green);border-color:var(--green)">${t}</button>`
+                    : '';
+                }).join('')}
+                ${(rcStudentHasMarks(student,'Term 1') && rcStudentHasMarks(student,'Term 2'))
+                  ? `<button class="btn btn-primary btn-sm" onclick="rcGenerateCard('${student.roll}','')">📊 Consolidated</button>`
+                  : `<button class="btn btn-primary btn-sm" onclick="rcGenerateCard('${student.roll}')">📋 Generate</button>`
+                }
+              </div>`
             : ''
           }
         </div>
@@ -5801,7 +6624,8 @@ function rcBuildReportData(roll, term){
         const hasAny = entry.level !== '' ||
           Object.values(entry.loLevels || {}).some(loMap =>
             Object.values(loMap).some(v => v !== '')
-          );
+          ) ||
+          Object.values(entry.studentComments || {}).some(c => c && c.trim() !== '');
         if(hasAny) termsWithData.push(t);
       }
     }
@@ -5956,8 +6780,10 @@ function rcBuildReportData(roll, term){
 }
 
 // ── Entry point: called when "Generate Report Card" is clicked ──
-function rcGenerateCard(roll){
-  const term = document.getElementById('rc-filter-term')?.value || '';
+function rcGenerateCard(roll, termOverride){
+  const term = termOverride !== undefined
+    ? termOverride
+    : (document.getElementById('rc-filter-term')?.value || '');
   const data = rcBuildReportData(roll, term);
   if(!data){ showToast('Student not found', 'error'); return; }
 
@@ -6282,12 +7108,8 @@ function rcRenderPreviewCard(data){
           }).join('')}
 
           ${['Term 1','Term 2'].map((t, ti) => {
-            const hasTerm = domain.subskills.some(ss =>
-              ss.outcomes.some(o => getLOLevelForTerm(domain.id, ss.id, o.id, t))
-            );
-            if(!hasTerm) return '';
             const comment = getDomainCommentForTerm(domain.id, t);
-            if(!comment) return '';
+            if(!comment || !comment.trim()) return '';
             return '<tr><td ' + TDB + ' style="padding:8px 14px;border:1px solid #c8d8e8;white-space:nowrap;vertical-align:top">Teacher\'s Comment<br/><span style=\'font-weight:400;font-size:10px;color:#555\'>Term ' + (ti+1) + '</span></td>' +
               '<td colspan="4" style="padding:10px 16px;border:1px solid #c8d8e8;font-size:12px;color:#1a2a3a;line-height:1.7;vertical-align:top">' +
               comment.replace(/\n/g,'<br/>') + '</td></tr>';
@@ -6310,9 +7132,10 @@ function rcRenderPreviewCard(data){
 // ════════════════════════════════════════════════════════
 
 // State for the print modal
-let _printMode   = 'one';    // 'one' | 'section'
-let _printFormat = 'print';  // 'print' | 'pdf'
-let _printRoll   = null;     // roll of currently-previewed student (for 'one' mode)
+let _printMode       = 'one';    // 'one' | 'section'
+let _printFormat     = 'print';  // 'print' | 'pdf'
+let _printRoll       = null;     // roll of currently-previewed student (for 'one' mode)
+let _printReportType = 'term1';  // 'term1' | 'term2' | 'consolidated'
 
 /* ── Open the print modal ─────────────────────────────────────────────── */
 function rcOpenPrintModal(hint){
@@ -6320,6 +7143,12 @@ function rcOpenPrintModal(hint){
   _printMode   = hint === 'bulk' || hint === 'pdf' ? 'section' : 'one';
   _printFormat = hint === 'pdf' ? 'pdf' : 'print';
   _printRoll   = rcSelectedStudent ? rcSelectedStudent.roll : null;
+
+  // Default report type from current filter bar selection
+  const filterTerm = document.getElementById('rc-filter-term')?.value || '';
+  _printReportType = filterTerm === 'Term 1' ? 'term1'
+                   : filterTerm === 'Term 2' ? 'term2'
+                   : 'consolidated';
 
   // Reset UI state
   document.getElementById('printModeSection').style.display    = '';
@@ -6332,11 +7161,30 @@ function rcOpenPrintModal(hint){
   document.getElementById('printModalTitle').textContent = '🖨️ Print / Save PDF';
 
   // Sync UI selections
+  rcSelectReportType(_printReportType, true);
   rcSelectPrintMode(_printMode, true);
   rcSelectPrintFormat(_printFormat, true);
 
   // Open
   document.getElementById('printModal').classList.add('open');
+}
+
+/* ── Select report type ───────────────────────────────────────────────── */
+function rcSelectReportType(type, silent){
+  _printReportType = type;
+  ['term1','term2','consolidated'].forEach(t => {
+    const card = document.getElementById('rtypeCard-' + t);
+    if(card) card.classList.toggle('selected', t === type);
+  });
+  // If section chips are visible, refresh them (term filter affects which students have marks)
+  if(_printMode === 'section' && !silent) rcUpdateSectionChips();
+}
+
+/* ── Helper: resolve report type to a term string for rcBuildReportData ─ */
+function rcResolveTermForPrint(){
+  if(_printReportType === 'term1') return 'Term 1';
+  if(_printReportType === 'term2') return 'Term 2';
+  return ''; // consolidated = all terms merged
 }
 
 /* ── Select print mode ────────────────────────────────────────────────── */
@@ -6371,7 +7219,8 @@ function rcSelectPrintMode(mode, silent){
 /* ── Update the chip list for section mode ────────────────────────────── */
 function rcUpdateSectionChips(){
   const list = rcGetFilteredStudents();
-  const hasMarks = list.filter(s => rcStudentHasMarks(s, document.getElementById('rc-filter-term')?.value || ''));
+  const termForCheck = rcResolveTermForPrint();
+  const hasMarks = list.filter(s => rcStudentHasMarks(s, termForCheck));
   const chips = document.getElementById('printStudentChips');
   const count = document.getElementById('printChipCount');
 
@@ -6441,7 +7290,7 @@ function rcPrintCard(roll){
   if(/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)){
     showToast('⚠ Printing works best on a desktop browser. On mobile, results may vary.', 'info');
   }
-  const term = document.getElementById('rc-filter-term')?.value || '';
+  const term = rcResolveTermForPrint();
   const data = rcBuildReportData(roll, term);
   if(!data){ showToast('Could not build report card', 'error'); return; }
 
@@ -6465,7 +7314,7 @@ function rcPrintCard(roll){
 
 /* ── Bulk print all students in the current section filter ────────────── */
 function rcBulkPrint(){
-  const term  = document.getElementById('rc-filter-term')?.value || '';
+  const term  = rcResolveTermForPrint();
   const list  = rcGetFilteredStudents().filter(s => rcStudentHasMarks(s, term));
 
   if(!list.length){
