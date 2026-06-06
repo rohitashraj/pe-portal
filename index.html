@@ -882,144 +882,7 @@ tbody td{padding:9px 14px;vertical-align:middle;}
       </div>
     </div>
 
-    <!-- DB Schema Health -->
-    <div class="card" style="margin-top:20px;border-left:4px solid var(--amber)">
-      <div class="card-header" style="background:var(--amber-light)">
-        <div class="card-title" style="color:var(--amber)">🛠️ Database Schema — Required Migration</div>
-        <button class="btn btn-sm" id="dbCheckBtn" onclick="checkDbSchema()" style="background:var(--amber);color:#fff;font-weight:600">▶ Test Schema</button>
-      </div>
-      <div style="padding:18px 20px">
-        <p style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6">
-          The <strong>marks</strong> table needs a <code style="background:var(--bg);padding:1px 5px;border-radius:3px;font-size:12px">term</code> column to save grades per term.
-          Run the SQL below in your <strong>Supabase → SQL Editor</strong>, then click <em>Test Schema</em> to verify.
-        </p>
-        <div id="dbSchemaStatus" style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:7px;font-size:13px;font-weight:500"></div>
-        <div style="position:relative">
-          <pre id="migrationSql" style="background:#0f172a;color:#e2e8f0;padding:16px 18px;border-radius:8px;font-size:12px;line-height:1.7;overflow-x:auto;margin:0">ALTER TABLE marks ADD COLUMN IF NOT EXISTS term text NOT NULL DEFAULT '';
-UPDATE marks SET term = '' WHERE term IS NULL;</pre>
-          <button onclick="copyMigrationSql()" style="position:absolute;top:10px;right:10px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#e2e8f0;border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit" id="copySqlBtn">📋 Copy</button>
-        </div>
-        <p style="font-size:12px;color:var(--muted);margin-top:10px">
-          Go to <strong>supabase.com → your project → SQL Editor → New query</strong>, paste the above, and click Run.
-        </p>
-      </div>
-    </div>
-
-    <!-- Students table migration -->
-    <div class="card" style="margin-top:16px;border-left:4px solid var(--primary)">
-      <div class="card-header" style="background:var(--primary-light)">
-        <div class="card-title" style="color:var(--primary)">🎓 Students Table — Extended Columns Migration</div>
-        <button class="btn btn-sm" onclick="copyStudentMigrationSql()" style="background:var(--primary);color:#fff;font-weight:600">📋 Copy SQL</button>
-      </div>
-      <div style="padding:18px 20px">
-        <p style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6">
-          Run this once in <strong>Supabase → SQL Editor</strong> to add Admission No., DOB, Father's Name, Mother's Name,
-          and domain comments columns. After running, re-upload your student data and all fields will save correctly.
-        </p>
-        <div style="position:relative">
-          <pre id="studentMigrationSql" style="background:#0f172a;color:#e2e8f0;padding:16px 18px;border-radius:8px;font-size:12px;line-height:1.7;overflow-x:auto;margin:0">ALTER TABLE students ADD COLUMN IF NOT EXISTS admission_no  TEXT DEFAULT '';
-ALTER TABLE students ADD COLUMN IF NOT EXISTS dob           TEXT DEFAULT '';
-ALTER TABLE students ADD COLUMN IF NOT EXISTS father_name   TEXT DEFAULT '';
-ALTER TABLE students ADD COLUMN IF NOT EXISTS mother_name   TEXT DEFAULT '';
-ALTER TABLE marks    ADD COLUMN IF NOT EXISTS domain_comments TEXT DEFAULT '{}';
-ALTER TABLE users    ADD COLUMN IF NOT EXISTS signature     TEXT DEFAULT '';
-CREATE TABLE IF NOT EXISTS settings (
-  key   TEXT PRIMARY KEY,
-  value TEXT DEFAULT ''
-);
-ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "allow_all" ON settings FOR ALL USING (true) WITH CHECK (true);</pre>
-          <button onclick="copyStudentMigrationSql()" style="position:absolute;top:10px;right:10px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#e2e8f0;border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit">📋 Copy</button>
-        </div>
-        <div style="margin-top:12px;padding:10px 14px;background:#e0f2fe;border-radius:7px;font-size:12px;color:#0369a1;line-height:1.6">
-          <strong>After running the SQL:</strong> go to Student Records → Import CSV and re-upload your file.
-          All student details (Father's name, Mother's name, DOB, Admission No.) will then be saved and shown correctly.
-        </div>
-      </div>
-    </div>
-
-    <!-- Height/Weight migration -->
-    <div class="card" style="margin-top:16px;border-left:4px solid var(--green)">
-      <div class="card-header" style="background:var(--green-light)">
-        <div class="card-title" style="color:var(--green)">📏 Height &amp; Weight — Database Migration</div>
-        <button class="btn btn-sm" onclick="copyHWMigrationSql()" style="background:var(--green);color:#fff;font-weight:600">📋 Copy SQL</button>
-      </div>
-      <div style="padding:18px 20px">
-        <p style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6">
-          Run this once in <strong>Supabase → SQL Editor</strong> to add a <code style="background:var(--bg);padding:1px 5px;border-radius:3px;font-size:12px">physicals</code> table
-          that stores per-student <strong>height, weight, and attendance</strong> (days present / total working days) per term.
-          If the table already exists from a previous version, the <code>ALTER TABLE</code> lines at the bottom safely add the new attendance columns.
-        </p>
-        <div style="position:relative">
-          <pre id="hwMigrationSql" style="background:#0f172a;color:#e2e8f0;padding:16px 18px;border-radius:8px;font-size:12px;line-height:1.7;overflow-x:auto;margin:0">CREATE TABLE IF NOT EXISTS physicals (
-  id             BIGSERIAL PRIMARY KEY,
-  roll           TEXT NOT NULL,
-  name           TEXT,
-  class          TEXT NOT NULL,
-  section        TEXT NOT NULL,
-  term           TEXT NOT NULL DEFAULT '',
-  height_cm      NUMERIC(5,1),
-  weight_kg      NUMERIC(5,1),
-  days_present   INTEGER,
-  total_days     INTEGER,
-  updated_at     TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE (roll, class, section, term)
-);
-ALTER TABLE physicals ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "allow_all" ON physicals FOR ALL USING (true) WITH CHECK (true);
-
--- If table already exists from a previous migration, add the new columns:
-ALTER TABLE physicals ADD COLUMN IF NOT EXISTS days_present INTEGER;
-ALTER TABLE physicals ADD COLUMN IF NOT EXISTS total_days   INTEGER;</pre>
-          <button onclick="copyHWMigrationSql()" style="position:absolute;top:10px;right:10px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#e2e8f0;border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit">📋 Copy</button>
-        </div>
-        <div style="margin-top:12px;padding:10px 14px;background:#ecfdf5;border-radius:7px;font-size:12px;color:#065f46;line-height:1.6">
-          After running the SQL, the <strong>Physical Data &amp; Attendance panel</strong> will appear inside every class section view
-          for both teachers and admins. Height, weight, BMI, and attendance (days present / total working days) are all stored
-          per student, per term, and printed automatically on report cards.
-        </div>
-      </div>
-    </div>
   </div>
-
-  <!-- Domains migration -->
-      <div class="card" style="margin-top:16px;border-left:4px solid var(--primary);">
-        <div class="card-header" style="background:var(--primary-light);">
-          <div class="card-title" style="color:var(--primary);">Domains Database Migration</div>
-          <button class="btn btn-sm" onclick="copyDomainMigrationSql()" style="background:var(--primary);color:#fff;font-weight:600;">Copy SQL</button>
-        </div>
-        <div style="padding:18px 20px;">
-          <p style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6;">Run this once in <strong>Supabase SQL Editor</strong> to create a <code style="background:var(--bg);padding:1px 5px;border-radius:3px;font-size:12px;">domains</code> table so domain changes are saved permanently.</p>
-          <div style="position:relative;">
-            <pre id="domainMigrationSql" style="background:#0f172a;color:#e2e8f0;padding:16px 18px;border-radius:8px;font-size:12px;line-height:1.7;overflow-x:auto;margin:0;">CREATE TABLE IF NOT EXISTS domains (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  subtitle TEXT,
-  color TEXT,
-  sort_order INTEGER DEFAULT 0,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE domains ENABLE ROW LEVEL SECURITY;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE schemaname = 'public' AND tablename = 'domains' AND policyname = 'allowall_domains'
-  ) THEN
-    CREATE POLICY allowall_domains ON domains FOR ALL USING (true) WITH CHECK (true);
-  END IF;
-END $$;
-
-ALTER TABLE domains ADD COLUMN IF NOT EXISTS subtitle TEXT;
-ALTER TABLE domains ADD COLUMN IF NOT EXISTS color TEXT;
-ALTER TABLE domains ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
-ALTER TABLE domains ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();</pre>
-            <button onclick="copyDomainMigrationSql()" style="position:absolute;top:10px;right:10px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#e2e8f0;border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit;">Copy</button>
-          </div>
-        </div>
-      </div>
 
       <!-- User Management -->
   <div id="adminUsers" class="hidden">
@@ -1057,14 +920,10 @@ ALTER TABLE domains ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW(
         <div style="font-size:12px;color:#78350f;line-height:1.6">
           Your Supabase <code>students</code> table is missing the extended columns.
           Any data uploaded for these fields is being silently discarded.
-          <strong>Run the migration SQL first, then re-import your file.</strong>
+          <strong>Please run the required SQL in your Supabase SQL Editor to add the missing columns, then re-import your file.</strong>
         </div>
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-sm" onclick="adminNav('dashboard')"
-            style="background:#d97706;color:#fff;font-weight:600">
-            🛠 Go to Migration SQL →
-          </button>
-          <button class="btn btn-outline btn-sm" onclick="stuRecheckSchema()"
+          <button class="btn outline btn-sm" onclick="stuRecheckSchema()"
             style="border-color:#d97706;color:#d97706">
             ↺ Re-check after running SQL
           </button>
@@ -2023,11 +1882,11 @@ let studentsSchemaExtended = false; // true once admission_no/dob/father_name/mo
 
 // The 5 Kosha-based assessment domains — managed by Super Admin
 let DOMAINS = [
-  { id:'d1', name:'', subtitle:'', color:'#1a4f8a' },
-  { id:'d2', name:'', subtitle:'', color:'#6d28d9' },
-  { id:'d3', name:'', subtitle:'', color:'#1a7f4f' },
-  { id:'d4', name:'', subtitle:'', color:'#b45309' },
-  { id:'d5', name:'', subtitle:'', color:'#c0392b' },
+  { id:'d1', name:'Physical Development & Motor Skills',          subtitle:'Annamaya Kosha',                        color:'#1a4f8a' },
+  { id:'d2', name:'Social-Emotional Development',                 subtitle:'Manomaya Kosha',                        color:'#6d28d9' },
+  { id:'d3', name:'Cognitive Development',                        subtitle:'Vijnanamaya Kosha',                     color:'#1a7f4f' },
+  { id:'d4', name:'Character & Values Development',               subtitle:'',                                      color:'#b45309' },
+  { id:'d5', name:'Holistic Wellness & Mind-Body Integration',    subtitle:'Pranamaya & Anandamaya Koshas',         color:'#c0392b' },
 ];   // { 'pe_teacher1': ['9-A','9-B','10-A'] … }
 
 const LEVEL_DEFS = {
@@ -3461,7 +3320,7 @@ async function hwSaveAll(){
         });
         if(res2.ok){
           setDbStatus('connected');
-          showToast('⚠ H/W saved but attendance columns missing — run the updated migration SQL in Admin → Dashboard to add attendance support.', 'info');
+          showToast('⚠ H/W saved but attendance columns missing — please run the required ALTER TABLE SQL in Supabase to add attendance support.', 'info');
         } else {
           throw new Error((await res2.text()).slice(0,200));
         }
@@ -3499,10 +3358,7 @@ async function hwLoadSection(){
   } catch(e){ /* silently ignore */ }
 }
 
-function copyHWMigrationSql(){
-  const sql = document.getElementById('hwMigrationSql').textContent;
-  navigator.clipboard.writeText(sql).then(()=>showToast('Migration SQL copied — paste into Supabase → SQL Editor and click Run','success'));
-}
+
 
 
 
@@ -4099,7 +3955,7 @@ async function savePrincipalSignature(){
   } catch(e){
     msgEl.style.display='block';
     msgEl.style.background='#fdecea'; msgEl.style.color='#c0392b';
-    msgEl.textContent='⚠ Could not save to database. Make sure the settings table exists (run migration SQL).';
+    msgEl.textContent='⚠ Could not save to database. Make sure the settings table exists in Supabase.';
   }
   setTimeout(()=>{ msgEl.style.display='none'; },5000);
 }
@@ -5490,7 +5346,7 @@ function openImportModal(){
   if(!studentsSchemaExtended){
     // Show a hard block — don't let them waste time re-uploading
     document.getElementById('confirmIcon').textContent  = '⚠️';
-    document.getElementById('confirmTitle').textContent = 'Run DB Migration First';
+    document.getElementById('confirmTitle').textContent = 'Database Columns Missing';
     document.getElementById('confirmMsg').innerHTML = `
       <div style="line-height:1.7;font-size:13px">
         Your Supabase <strong>students</strong> table is missing the columns for
@@ -5498,13 +5354,12 @@ function openImportModal(){
         If you import now, <strong>those fields will be silently discarded</strong> and
         you will lose the data again.<br/><br/>
         <div style="padding:10px 14px;background:#fef3c7;border-radius:6px;font-size:12px;color:#92400e">
-          👉 Go to <strong>Admin → Dashboard → Students Table Migration card</strong>,
-          copy the SQL and run it in Supabase first.
-          Then come back and import your file.
+          Please run the required <strong>ALTER TABLE</strong> SQL in your Supabase SQL Editor to add the missing columns,
+          then come back and import your file.
         </div>
       </div>`;
-    document.getElementById('confirmOkBtn').textContent = '🛠 Go to Migration →';
-    document.getElementById('confirmOkBtn').onclick = ()=>{ closeModal('confirmOverlay'); adminNav('dashboard'); };
+    document.getElementById('confirmOkBtn').textContent = 'OK';
+    document.getElementById('confirmOkBtn').onclick = ()=>{ closeModal('confirmOverlay'); };
     openModal('confirmOverlay');
     return;
   }
@@ -6213,63 +6068,6 @@ function showToast(msg,type='info'){
 // ════════════════════════════════════════════════════════
 // DB SCHEMA CHECK
 // ════════════════════════════════════════════════════════
-async function checkDbSchema(){
-  const statusEl = document.getElementById('dbSchemaStatus');
-  const btn = document.getElementById('dbCheckBtn');
-  btn.textContent = '⏳ Checking…'; btn.disabled = true;
-  statusEl.style.display = 'block';
-  statusEl.style.background = 'var(--amber-light)';
-  statusEl.style.color = 'var(--amber)';
-  statusEl.textContent = 'Testing marks table schema…';
-  try {
-    // Try inserting a dummy row with term to see if column exists
-    const testRow = [{class:'__test__',section:'__test__',term:'test',section_status:'empty',student_id:0,name:'__test__',roll:'__test__',level:'',lo_levels:'{}'}];
-    const res = await fetch(`${SB_URL}/rest/v1/marks`, {
-      method: 'POST',
-      headers: { ...SB_HEADERS, 'Prefer': 'return=minimal' },
-      body: JSON.stringify(testRow)
-    });
-    // Clean up the test row regardless
-    await fetch(`${SB_URL}/rest/v1/marks?class=eq.__test__`, { method:'DELETE', headers: SB_HEADERS });
-
-    if(res.ok || res.status === 201){
-      statusEl.style.background = 'var(--green-light)';
-      statusEl.style.color = 'var(--green)';
-      statusEl.innerHTML = '✅ <strong>Schema is up to date.</strong> The <code>term</code> column exists — marks will save correctly with term tracking.';
-    } else {
-      const errText = await res.text();
-      if(errText.includes('term') && (errText.includes('PGRST204') || errText.includes('schema cache') || errText.includes('column'))){
-        statusEl.style.background = 'var(--red-light)';
-        statusEl.style.color = 'var(--red)';
-        statusEl.innerHTML = '❌ <strong>Migration needed.</strong> The <code>term</code> column is missing. Copy the SQL above and run it in Supabase → SQL Editor.';
-      } else {
-        statusEl.style.background = 'var(--amber-light)';
-        statusEl.style.color = 'var(--amber)';
-        statusEl.textContent = '⚠ Unexpected response — ' + errText.slice(0,120);
-      }
-    }
-  } catch(e){
-    statusEl.style.background = 'var(--red-light)';
-    statusEl.style.color = 'var(--red)';
-    statusEl.textContent = '❌ Could not reach database: ' + e.message;
-  }
-  btn.textContent = '▶ Test Schema'; btn.disabled = false;
-}
-
-function copyMigrationSql(){
-  const sql = document.getElementById('migrationSql').textContent;
-  navigator.clipboard.writeText(sql).then(()=>{
-    const btn = document.getElementById('copySqlBtn');
-    btn.textContent = '✓ Copied!';
-    setTimeout(()=>btn.textContent='📋 Copy', 2000);
-  });
-}
-
-function copyStudentMigrationSql(){
-  const sql = document.getElementById('studentMigrationSql').textContent;
-  navigator.clipboard.writeText(sql).then(()=>showToast('SQL copied to clipboard — paste into Supabase → SQL Editor and click Run','success'));
-}
-
 window.addEventListener('DOMContentLoaded', initApp);
 
 
