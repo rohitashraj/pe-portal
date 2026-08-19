@@ -767,9 +767,17 @@ tbody td{padding:9px 14px;vertical-align:middle;}
       <div class="stat-card"><div class="stat-card-header"><div class="stat-card-label">Pending</div><div class="stat-card-icon" style="background:#fef3c7">⏳</div></div><div class="stat-val" id="gs-pending">0</div><div class="stat-sub">Sections to complete</div></div>
     </div>
     <div class="card">
-      <div class="card-header"><div class="card-title">📋 Section-wise Status Overview</div></div>
-      <div id="statusGrid" style="padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;">
-        <div class="empty-state" style="grid-column:1/-1;padding:40px;"><div class="empty-icon">🏫</div><div class="empty-title">No data yet</div><div class="empty-sub">Load a class from the sidebar to start entering marks.</div></div>
+      <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div class="card-title">📋 Grade-wise Marks Entry Status</div>
+        <div class="select-wrap">
+          <select id="statusGridTermSel" onchange="updateGlobalStats()" style="min-width:120px">
+            <option value="Term 1">Term 1</option>
+            <option value="Term 2">Term 2</option>
+          </select>
+        </div>
+      </div>
+      <div id="statusGrid" style="padding:20px;">
+        <div class="empty-state" style="padding:40px;"><div class="empty-icon">🏫</div><div class="empty-title">No data yet</div><div class="empty-sub">Load a class from the sidebar to start entering marks.</div></div>
       </div>
     </div>
   </div>
@@ -4277,66 +4285,111 @@ function showAllStats(){
   if(currentTeacher)t.textContent=`Welcome, ${currentTeacher.name.split(' ').slice(1).join(' ')||currentTeacher.name}`;
   updateGlobalStats();
 }
+// Returns classes in a fixed academic order — Readiness/FS1-3 → 1..5 → 6..8
+// → 9..10 → 11..12 — restricted to classes that actually have sections
+// configured, and (for teachers) restricted to classes they're assigned to.
+function orderedClassList(){
+  const teacherSections = getTeacherSections(); // null = admin, sees all
+  const out = [];
+  Object.values(LEVEL_DEFS).forEach(lvl=>{
+    lvl.classes.forEach(c=>{
+      if(!CLASS_CONFIG[c] || !CLASS_CONFIG[c].length) return;
+      if(teacherSections !== null && !CLASS_CONFIG[c].some(sec => teacherSections.includes(`${c}-${sec}`))) return;
+      out.push(c);
+    });
+  });
+  return out;
+}
+
 function updateGlobalStats(){
-  const allClasses=Object.keys(CLASS_CONFIG).filter(cl=>CLASS_CONFIG[cl].length>0);
-  const allSections=allClasses.reduce((a,cl)=>a+CLASS_CONFIG[cl].length,0);
-  const keys=Object.keys(store);
-  const submitted=keys.filter(k=>store[k].status==='submitted').length;
-  const pending=keys.filter(k=>store[k].status!=='submitted').length;
+  const term = document.getElementById('statusGridTermSel')?.value || currentTerm || 'Term 1';
+  const teacherSections = getTeacherSections(); // null = admin, sees all
+
+  const classes = orderedClassList();
+  // Flatten to every (class, section) this viewer can see, in ascending class order
+  const allPairs = [];
+  classes.forEach(cls=>{
+    (CLASS_CONFIG[cls]||[]).forEach(sec=>{
+      if(teacherSections !== null && !teacherSections.includes(`${cls}-${sec}`)) return;
+      allPairs.push({cls, sec});
+    });
+  });
+
+  let submittedCount = 0, draftCount = 0, pendingCount = 0;
+  const rows = allPairs.map(({cls,sec})=>{
+    const k = `${term}|${cls}-${sec}`;
+    const d = store[k];
+    let status = 'pending', filled = 0, total = 0;
+    if(d){
+      total  = d.students.length;
+      filled = d.students.filter(s=>s.level!==''||Object.keys(s.loLevels||{}).length>0).length;
+      if(d.status === 'submitted') status = 'completed';
+      else if(d.status === 'draft' || filled>0) status = 'draft';
+    }
+    if(status==='completed') submittedCount++;
+    else if(status==='draft') draftCount++;
+    else pendingCount++;
+    return { cls, sec, status, filled, total };
+  });
+
   const gsC=document.getElementById('gs-classes');
   const gsS=document.getElementById('gs-sections');
   const gsSub=document.getElementById('gs-submitted');
   const gsP=document.getElementById('gs-pending');
-  if(gsC) gsC.textContent=allClasses.length;
-  if(gsS) gsS.textContent=allSections;
-  if(gsSub) gsSub.textContent=submitted;
-  if(gsP) gsP.textContent=pending;
+  if(gsC) gsC.textContent=classes.length;
+  if(gsS) gsS.textContent=allPairs.length;
+  if(gsSub) gsSub.textContent=submittedCount;
+  if(gsP) gsP.textContent=draftCount+pendingCount;
+
   const grid=document.getElementById('statusGrid');
   if(!grid) return;
-  if(!keys.length){
-    grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;padding:40px">
+  if(!allPairs.length){
+    grid.innerHTML=`<div class="empty-state" style="padding:40px">
       <div class="empty-icon">🏫</div>
-      <div class="empty-title">No data yet</div>
-      <div class="empty-sub">Select a class from the sidebar to start entering marks.</div>
+      <div class="empty-title">No classes configured yet</div>
+      <div class="empty-sub">${teacherSections!==null?'No classes assigned to you yet — contact your administrator.':'Add classes and sections in Admin → Classes.'}</div>
     </div>`;
     return;
   }
-  grid.innerHTML='';
-  keys.forEach(k=>{
-    // Parse key — format: "Term 1|9-A" or legacy "9-A"
-    const pipeParts=k.split('|');
-    const termPart =pipeParts.length>1?pipeParts[0]:'';
-    if(!termPart) return; // skip legacy no-term keys
-    const clsSec   =pipeParts.length>1?pipeParts[1]:pipeParts[0];
-    const dashIdx  =clsSec.indexOf('-');
-    const cls = dashIdx>=0?clsSec.slice(0,dashIdx):clsSec;
-    const sec = dashIdx>=0?clsSec.slice(dashIdx+1):'';
-    if(!cls||!sec) return;
-    const d=store[k];
-    if(!d) return;
-    const filled=d.students.filter(s=>s.level!==''||Object.keys(s.loLevels||{}).length>0).length;
-    const total=d.students.length;
-    const sc=d.status==='submitted'?'var(--green)':d.status==='draft'?'var(--amber)':'var(--muted)';
-    const sl=d.status==='submitted'?'✓ Submitted':d.status==='draft'?'⏳ Draft':'Empty';
-    const clsLabel=isNaN(Number(cls))?cls:'Class '+cls;
-    const termLabel=termPart?`<span style="font-size:10px;color:var(--muted);display:block">${termPart}</span>`:'';
-    const clsArg=isNaN(Number(cls))?`'${cls}'`:cls;
-    grid.innerHTML+=`<div class="card" style="cursor:pointer;transition:box-shadow .15s"
-      onclick="loadClass(${clsArg});setTimeout(()=>loadSection('${sec}'),60)"
-      onmouseover="this.style.boxShadow='var(--shadow-lg)'"
-      onmouseout="this.style.boxShadow=''">
-      <div style="padding:14px 16px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <div style="font-weight:600;font-size:14px">${termLabel}${clsLabel} – Sec ${sec}</div>
-          <span style="font-size:11px;font-weight:600;color:${sc}">${sl}</span>
-        </div>
-        <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:8px">
-          <div style="height:100%;width:${total?(filled/total*100):0}%;background:${sc};border-radius:3px"></div>
-        </div>
-        <div style="font-size:11px;color:var(--muted)">${filled} / ${total} levels assigned</div>
+
+  const STATUS_META = {
+    completed: { label:'✓ Completed', color:'var(--green)',  bg:'#dcfce7' },
+    draft:     { label:'⏳ Draft',     color:'var(--amber)', bg:'#fef3c7' },
+    pending:   { label:'○ Pending',   color:'var(--muted)', bg:'#f3f4f6' },
+  };
+
+  let h = '';
+  classes.forEach(cls=>{
+    const secRows = rows.filter(r=>r.cls===cls);
+    if(!secRows.length) return;
+    const clsLabel = isNaN(Number(cls)) ? cls : `Class ${cls}`;
+    const clsArg   = isNaN(Number(cls)) ? `'${cls}'` : cls;
+    h += `<div style="margin-bottom:18px">
+      <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">${clsLabel}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+        ${secRows.map(r=>{
+          const m = STATUS_META[r.status];
+          const pct = r.total ? Math.round(r.filled/r.total*100) : 0;
+          return `<div class="card" style="cursor:pointer;transition:box-shadow .15s"
+            onclick="loadClass(${clsArg});setTimeout(()=>loadSection('${r.sec}'),60)"
+            onmouseover="this.style.boxShadow='var(--shadow-lg)'"
+            onmouseout="this.style.boxShadow=''">
+            <div style="padding:12px 14px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <div style="font-weight:600;font-size:13px">Section ${r.sec}</div>
+                <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:${m.bg};color:${m.color}">${m.label}</span>
+              </div>
+              <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:6px">
+                <div style="height:100%;width:${pct}%;background:${m.color};border-radius:3px"></div>
+              </div>
+              <div style="font-size:11px;color:var(--muted)">${r.total?`${r.filled} / ${r.total} levels assigned`:'No students yet'}</div>
+            </div>
+          </div>`;
+        }).join('')}
       </div>
     </div>`;
   });
+  grid.innerHTML = h;
 }
 
 function showAdminDashboard(){
